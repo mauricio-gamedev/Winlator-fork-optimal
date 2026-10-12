@@ -65,6 +65,7 @@ cmake -S "$UPSTREAM/vortek" -B "$WORK/vortek-build" \
   -DCMAKE_SYSTEM_NAME=Linux \
   -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
   -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+  -DCMAKE_C_FLAGS=-I/usr/include \
   -DCMAKE_BUILD_TYPE=Release \
   "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-rpath,$ROOTFS_PATH"
 cmake --build "$WORK/vortek-build" --parallel 2
