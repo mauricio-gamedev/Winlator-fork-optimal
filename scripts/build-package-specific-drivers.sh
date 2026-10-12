@@ -152,11 +152,13 @@ replace_once(
 )
 
 replace_once(
-    "        if (environment != null) environment.stopEnvironmentComponents();\n",
-    """        if (startupHandler != null && startupTimeoutRunnable != null) startupHandler.removeCallbacks(startupTimeoutRunnable);
+    "        winHandler.stop();\n        if (environment != null) environment.stopEnvironmentComponents();\n        ForegroundService.stopSession(this);\n",
+    """        winHandler.stop();
+        if (startupHandler != null && startupTimeoutRunnable != null) startupHandler.removeCallbacks(startupTimeoutRunnable);
         if (startupLogCallback != null) ProcessHelper.removeDebugCallback(startupLogCallback);
         if (startupTimeoutDialog != null && startupTimeoutDialog.isShowing()) startupTimeoutDialog.dismiss();
         if (environment != null) environment.stopEnvironmentComponents();
+        ForegroundService.stopSession(this);
 """,
     "startup destroy cleanup"
 )
