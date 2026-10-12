@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="${GITHUB_WORKSPACE:?GITHUB_WORKSPACE is required}"
+UPSTREAM="$ROOT/upstream"
+APP="$UPSTREAM/app/app"
+ROOTFS_PATH="/data/data/com.winlator.optimal/files/rootfs/lib"
+WORK="${RUNNER_TEMP:-/tmp}/winlator-optimal-driver-build"
+
+fail() { echo "ERROR: $*" >&2; exit 1; }
+
+replace_exactly_once() {
+  local file="$1" old="$2" new="$3"
+  python3 - "$file" "$old" "$new" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+old, new = sys.argv[2], sys.argv[3]
+data = p.read_text()
+count = data.count(old)
+if count != 1:
+    raise SystemExit(f"{p}: expected one occurrence of {old!r}, found {count}")
+p.write_text(data.replace(old, new, 1))
+print(f"Patched {p}")
+PY
+}
+
+# The Linux guest drivers shipped in the upstream assets contain package-specific
+# socket/cache paths. Rebuild them for our distinct Android application ID.
+replace_exactly_once "$UPSTREAM/vortek/include/vortek.h" \
+  '/data/data/com.winlator/files/rootfs/tmp/.vortek/V0' \
+  '/data/data/com.winlator.optimal/files/rootfs/tmp/.vortek/V0'
+replace_exactly_once "$UPSTREAM/vortek/include/winlator.h" \
+  '/data/data/com.winlator/cache' \
+  '/data/data/com.winlator.optimal/cache'
+replace_exactly_once "$UPSTREAM/gladio/include/gladio.h" \
+  '/data/data/com.winlator/files/rootfs/tmp/.X11-unix/X0' \
+  '/data/data/com.winlator.optimal/files/rootfs/tmp/.X11-unix/X0'
+replace_exactly_once "$UPSTREAM/gladio/include/winlator.h" \
+  '/data/data/com.winlator/cache' \
+  '/data/data/com.winlator.optimal/cache'
+
+command -v aarch64-linux-gnu-gcc >/dev/null || fail 'aarch64-linux-gnu-gcc is missing'
+command -v zstd >/dev/null || fail 'zstd is missing'
+command -v cmake >/dev/null || fail 'cmake is missing'
+
+rm -rf "$WORK"
+mkdir -p "$WORK"
+
+echo 'Building Vortek guest Vulkan driver for Linux ARM64...'
+cmake -S "$UPSTREAM/vortek" -B "$WORK/vortek-build" \
+  -DCMAKE_SYSTEM_NAME=Linux \
+  -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+  -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+  -DCMAKE_BUILD_TYPE=Release \
+  "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-rpath,$ROOTFS_PATH"
+cmake --build "$WORK/vortek-build" --parallel 2
+VORTEK_SO="$WORK/vortek-build/libvulkan_vortek.so"
+test -f "$VORTEK_SO" || fail "Vortek build output not found: $VORTEK_SO"
+
+echo 'Building Gladio guest OpenGL driver for Linux ARM64...'
+cmake -S "$UPSTREAM/gladio" -B "$WORK/gladio-build" \
+  -DCMAKE_SYSTEM_NAME=Linux \
+  -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+  -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+  -DCMAKE_BUILD_TYPE=Release \
+  "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-rpath,$ROOTFS_PATH"
+cmake --build "$WORK/gladio-build" --parallel 2
+GLADIO_SO="$WORK/gladio-build/libGL.so"
+test -f "$GLADIO_SO" || fail "Gladio build output not found: $GLADIO_SO"
+
+echo 'Packaging custom Vortek and Gladio assets...'
+VORTEK_PACKAGE="$WORK/vortek-package"
+GLADIO_PACKAGE="$WORK/gladio-package"
+mkdir -p "$VORTEK_PACKAGE/usr/lib" "$VORTEK_PACKAGE/usr/share/vulkan/icd.d"
+mkdir -p "$GLADIO_PACKAGE/usr/lib"
+
+cp "$VORTEK_SO" "$VORTEK_PACKAGE/usr/lib/libvulkan_vortek.so"
+cp "$GLADIO_SO" "$GLADIO_PACKAGE/usr/lib/libGL.so.1.7.0"
+cat > "$VORTEK_PACKAGE/usr/share/vulkan/icd.d/vortek_icd.aarch64.json" <<'JSON'
+{
+    "ICD": {
+        "api_version": "1.1.128",
+        "library_path": "/data/data/com.winlator.optimal/files/rootfs/lib/libvulkan_vortek.so"
+    },
+    "file_format_version": "1.0.0"
+}
+JSON
+
+mkdir -p "$APP/src/main/assets/graphics_driver"
+tar --zstd -cf "$APP/src/main/assets/graphics_driver/vortek-2.1.tzst" -C "$VORTEK_PACKAGE" .
+tar --zstd -cf "$APP/src/main/assets/graphics_driver/gladio-1.1.tzst" -C "$GLADIO_PACKAGE" .
+
+echo 'Verifying the packaged native paths...'
+grep -Fq '/data/data/com.winlator.optimal/files/rootfs/lib/libvulkan_vortek.so' \
+  "$VORTEK_PACKAGE/usr/share/vulkan/icd.d/vortek_icd.aarch64.json" || fail 'Vortek ICD path mismatch'
+strings "$VORTEK_PACKAGE/usr/lib/libvulkan_vortek.so" | grep -Fq '/data/data/com.winlator.optimal/files/rootfs/tmp/.vortek/V0' || fail 'Vortek socket path missing'
+strings "$GLADIO_PACKAGE/usr/lib/libGL.so.1.7.0" | grep -Fq '/data/data/com.winlator.optimal/files/rootfs/tmp/.X11-unix/X0' || fail 'Gladio socket path missing'
+if strings "$VORTEK_PACKAGE/usr/lib/libvulkan_vortek.so" | grep -Fq '/data/data/com.winlator/files/rootfs/tmp/.vortek/V0'; then
+  fail 'Vortek still contains the upstream package socket path'
+fi
+if strings "$GLADIO_PACKAGE/usr/lib/libGL.so.1.7.0" | grep -Fq '/data/data/com.winlator/files/rootfs/tmp/.X11-unix/X0'; then
+  fail 'Gladio still contains the upstream package socket path'
+fi
+
+echo 'Custom Linux ARM64 graphics assets ready.'
