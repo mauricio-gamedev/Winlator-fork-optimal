@@ -104,6 +104,21 @@ mkdir -p "$APP/src/main/assets/graphics_driver"
 tar --zstd -cf "$APP/src/main/assets/graphics_driver/vortek-2.1.tzst" -C "$VORTEK_PACKAGE" .
 tar --zstd -cf "$APP/src/main/assets/graphics_driver/gladio-1.1.tzst" -C "$GLADIO_PACKAGE" .
 
+# The base rootfs also contains an ALSA hook with an absolute upstream package path.
+# Override only that config through rootfs_patches.tzst, which the app reapplies when
+# preparing a container, rather than recompressing the entire 60+ MB rootfs archive.
+ROOTFS_PATCHES="$WORK/rootfs-patches-package"
+ALSA_CONF="$WORK/alsa.conf"
+mkdir -p "$ROOTFS_PATCHES"
+tar --zstd -xf "$APP/src/main/assets/rootfs_patches.tzst" -C "$ROOTFS_PATCHES"
+tar --zstd -xOf "$APP/src/main/assets/rootfs.tzst" ./usr/share/alsa/alsa.conf > "$ALSA_CONF"
+replace_exactly_once "$ALSA_CONF" \
+  '/data/data/com.winlator/files/rootfs/etc/alsa/conf.d/android_aserver.conf' \
+  '/data/data/com.winlator.optimal/files/rootfs/etc/alsa/conf.d/android_aserver.conf'
+mkdir -p "$ROOTFS_PATCHES/usr/share/alsa"
+cp "$ALSA_CONF" "$ROOTFS_PATCHES/usr/share/alsa/alsa.conf"
+tar --zstd -cf "$APP/src/main/assets/rootfs_patches.tzst" -C "$ROOTFS_PATCHES" .
+
 echo 'Verifying the packaged native paths...'
 grep -Fq '/data/data/com.winlator.optimal/files/rootfs/lib/libvulkan_vortek.so' \
   "$VORTEK_PACKAGE/usr/share/vulkan/icd.d/vortek_icd.aarch64.json" || fail 'Vortek ICD path mismatch'
