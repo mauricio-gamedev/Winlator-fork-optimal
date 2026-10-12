@@ -1,0 +1,73 @@
+name: Android Debug APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Winlator debug APK
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout fork and pinned upstream sources
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build dependencies
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;24.0.8215888" \
+            "cmake;3.22.1"
+
+      - name: Verify pinned source modules
+        run: |
+          git submodule status --recursive
+          test -f upstream/app/app/build.gradle
+          test -f upstream/app/app/src/main/cpp/CMakeLists.txt
+          test -f upstream/installable_components/turnip/index.txt
+
+      - name: Apply fork patches, if present
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for patch_file in "$GITHUB_WORKSPACE"/patches/*.patch; do
+            echo "Applying ${patch_file##*/}"
+            git -C upstream/app apply --check "$patch_file"
+            git -C upstream/app apply "$patch_file"
+          done
+
+      - name: Build debug APK
+        working-directory: upstream/app
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleDebug
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: winlator-fork-optimal-debug
+          path: upstream/app/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
