@@ -53,6 +53,118 @@ replace_exactly_once "$UPSTREAM/gladio/include/winlator.h" \
   '/data/data/com.winlator/cache' \
   '/data/data/com.winlator.optimal/cache'
 
+
+# Bump the graphics cache fingerprint so an installed broken build cannot keep using
+# its already-extracted assets after this APK is upgraded.
+replace_exactly_once "$APP/src/main/java/com/winlator/XServerDisplayActivity.java" \
+  'cacheId += "-"+graphicsDriver[1]+"-"+DefaultVersion.valueOf(graphicsDriver[1]);' \
+  'cacheId += "-"+graphicsDriver[1]+"-"+DefaultVersion.valueOf(graphicsDriver[1])+"-optimal-assets-r2";'
+
+# Keep launch diagnostics for the first 180 seconds and replace the endless preloader
+# with a useful error report if Wine never maps a renderable X11 window.
+python3 - "$APP/src/main/java/com/winlator/XServerDisplayActivity.java" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text()
+
+def replace_once(old, new, label):
+    global source
+    count = source.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected one occurrence, found {count}")
+    source = source.replace(old, new, 1)
+
+replace_once(
+    "    private SharedPreferences preferences;\n",
+    """    private SharedPreferences preferences;
+    private android.os.Handler startupHandler;
+    private Runnable startupTimeoutRunnable;
+    private Callback<String> startupLogCallback;
+    private ContentDialog startupTimeoutDialog;
+    private final StringBuilder startupLogBuffer = new StringBuilder();
+    private final Object startupLogLock = new Object();
+    private boolean startupWindowVisible = false;
+""",
+    "startup fields"
+)
+
+replace_once(
+    "        preloaderDialog.show(R.string.starting_up);\n",
+    """        preloaderDialog.show(R.string.starting_up);
+        startupWindowVisible = false;
+        startupLogBuffer.setLength(0);
+        startupLogCallback = (line) -> {
+            synchronized (startupLogLock) {
+                startupLogBuffer.append(line).append('\\n');
+                if (startupLogBuffer.length() > 12000) {
+                    startupLogBuffer.delete(0, startupLogBuffer.length() - 12000);
+                }
+            }
+        };
+        ProcessHelper.addDebugCallback(startupLogCallback);
+        startupHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+        startupTimeoutRunnable = () -> {
+            if (startupWindowVisible || isFinishing() || isGenerateWineprefix()) {
+                ProcessHelper.removeDebugCallback(startupLogCallback);
+                return;
+            }
+
+            preloaderDialog.close();
+            String logSnapshot;
+            synchronized (startupLogLock) {
+                logSnapshot = startupLogBuffer.toString();
+            }
+            if (logSnapshot.length() > 2200) {
+                logSnapshot = logSnapshot.substring(logSnapshot.length() - 2200);
+            }
+
+            String message = "Nenhuma janela do Wine apareceu após 180 segundos. "
+                + "A inicialização será encerrada para evitar o carregamento infinito. "
+                + "As últimas mensagens do processo estão abaixo; envie-as para localizar "
+                + "a causa caso a correção gráfica não resolva o problema.\\n\\n"
+                + (logSnapshot.isEmpty() ? "(O processo não produziu mensagens de diagnóstico.)" : logSnapshot);
+
+            startupTimeoutDialog = new ContentDialog(this);
+            startupTimeoutDialog.setTitle("Inicialização não concluída");
+            startupTimeoutDialog.setMessage(message);
+            startupTimeoutDialog.findViewById(R.id.BTCancel).setVisibility(View.GONE);
+            startupTimeoutDialog.setOnConfirmCallback(this::finish);
+            startupTimeoutDialog.setCancelable(false);
+            startupTimeoutDialog.show();
+        };
+        if (!isGenerateWineprefix()) startupHandler.postDelayed(startupTimeoutRunnable, 180000L);
+""",
+    "startup watchdog"
+)
+
+replace_once(
+    "                    preloaderDialog.closeOnUiThread();\n                    flags[0] = true;\n",
+    """                    startupWindowVisible = true;
+                    if (startupHandler != null) startupHandler.removeCallbacks(startupTimeoutRunnable);
+                    if (startupLogCallback != null) ProcessHelper.removeDebugCallback(startupLogCallback);
+                    if (startupTimeoutDialog != null && startupTimeoutDialog.isShowing()) startupTimeoutDialog.dismiss();
+                    preloaderDialog.closeOnUiThread();
+                    flags[0] = true;
+""",
+    "startup success cleanup"
+)
+
+replace_once(
+    "        if (environment != null) environment.stopEnvironmentComponents();\n",
+    """        if (startupHandler != null && startupTimeoutRunnable != null) startupHandler.removeCallbacks(startupTimeoutRunnable);
+        if (startupLogCallback != null) ProcessHelper.removeDebugCallback(startupLogCallback);
+        if (startupTimeoutDialog != null && startupTimeoutDialog.isShowing()) startupTimeoutDialog.dismiss();
+        if (environment != null) environment.stopEnvironmentComponents();
+""",
+    "startup destroy cleanup"
+)
+
+path.write_text(source)
+print("Patched XServerDisplayActivity with asset cache invalidation and startup diagnostics.")
+PY
+
 command -v aarch64-linux-gnu-gcc >/dev/null || fail 'aarch64-linux-gnu-gcc is missing'
 command -v zstd >/dev/null || fail 'zstd is missing'
 command -v cmake >/dev/null || fail 'cmake is missing'
