@@ -56,16 +56,25 @@ replace_exactly_once "$UPSTREAM/gladio/include/winlator.h" \
 command -v aarch64-linux-gnu-gcc >/dev/null || fail 'aarch64-linux-gnu-gcc is missing'
 command -v zstd >/dev/null || fail 'zstd is missing'
 command -v cmake >/dev/null || fail 'cmake is missing'
+command -v git >/dev/null || fail 'git is missing'
 
 rm -rf "$WORK"
 mkdir -p "$WORK"
+
+# Use the Vulkan headers revision needed by the generated serializer. Ubuntu's
+# packaged headers can lag behind the Vulkan API symbols used by this pinned source.
+VULKAN_HEADERS="$WORK/Vulkan-Headers"
+git clone --filter=blob:none --no-checkout https://github.com/KhronosGroup/Vulkan-Headers.git "$VULKAN_HEADERS"
+git -C "$VULKAN_HEADERS" checkout --detach c46850864f4661461b0f6cb9922c058ffea4915e
+test -f "$VULKAN_HEADERS/include/vulkan/vulkan.h" || fail 'Pinned Vulkan headers are missing'
+VULKAN_INCLUDE="-I$VULKAN_HEADERS/include"
 
 echo 'Building Vortek guest Vulkan driver for Linux ARM64...'
 cmake -S "$UPSTREAM/vortek" -B "$WORK/vortek-build" \
   -DCMAKE_SYSTEM_NAME=Linux \
   -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
   -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-  -DCMAKE_C_FLAGS=-I/usr/include \
+  -DCMAKE_C_FLAGS=$VULKAN_INCLUDE \
   -DCMAKE_BUILD_TYPE=Release \
   "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-rpath,$ROOTFS_PATH"
 cmake --build "$WORK/vortek-build" --parallel 2
@@ -77,7 +86,7 @@ cmake -S "$UPSTREAM/gladio" -B "$WORK/gladio-build" \
   -DCMAKE_SYSTEM_NAME=Linux \
   -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
   -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-  -DCMAKE_C_FLAGS=-I/usr/include \
+  -DCMAKE_C_FLAGS=$VULKAN_INCLUDE \
   -DCMAKE_BUILD_TYPE=Release \
   "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-rpath,$ROOTFS_PATH"
 cmake --build "$WORK/gladio-build" --parallel 2
@@ -124,12 +133,12 @@ tar --zstd -cf "$APP/src/main/assets/rootfs_patches.tzst" -C "$ROOTFS_PATCHES" .
 echo 'Verifying the packaged native paths...'
 grep -Fq '/data/data/com.winlator.optimal/files/rootfs/lib/libvulkan_vortek.so' \
   "$VORTEK_PACKAGE/usr/share/vulkan/icd.d/vortek_icd.aarch64.json" || fail 'Vortek ICD path mismatch'
-strings "$VORTEK_PACKAGE/usr/lib/libvulkan_vortek.so" | grep -Fq '/data/data/com.winlator.optimal/files/rootfs/tmp/.vortek/V0' || fail 'Vortek socket path missing'
-strings "$GLADIO_PACKAGE/usr/lib/libGL.so.1.7.0" | grep -Fq '/data/data/com.winlator.optimal/files/rootfs/tmp/.X11-unix/X0' || fail 'Gladio socket path missing'
-if strings "$VORTEK_PACKAGE/usr/lib/libvulkan_vortek.so" | grep -Fq '/data/data/com.winlator/files/rootfs/tmp/.vortek/V0'; then
+strings "$VORTEK_PACKAGE/usr/lib/libvulkan_vortek.so" | grep -F '/data/data/com.winlator.optimal/files/rootfs/tmp/.vortek/V0' >/dev/null || fail 'Vortek socket path missing'
+strings "$GLADIO_PACKAGE/usr/lib/libGL.so.1.7.0" | grep -F '/data/data/com.winlator.optimal/files/rootfs/tmp/.X11-unix/X0' >/dev/null || fail 'Gladio socket path missing'
+if strings "$VORTEK_PACKAGE/usr/lib/libvulkan_vortek.so" | grep -F '/data/data/com.winlator/files/rootfs/tmp/.vortek/V0' >/dev/null; then
   fail 'Vortek still contains the upstream package socket path'
 fi
-if strings "$GLADIO_PACKAGE/usr/lib/libGL.so.1.7.0" | grep -Fq '/data/data/com.winlator/files/rootfs/tmp/.X11-unix/X0'; then
+if strings "$GLADIO_PACKAGE/usr/lib/libGL.so.1.7.0" | grep -F '/data/data/com.winlator/files/rootfs/tmp/.X11-unix/X0' >/dev/null; then
   fail 'Gladio still contains the upstream package socket path'
 fi
 
