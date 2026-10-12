@@ -54,13 +54,15 @@ index e2d342c..78ae215 100644
      <string name="run">Executar</string>
      <string name="edit">Editar</string>
      <string name="remove">Remover</string>
-diff --git a/app/src/main/res/values-ru/strings.xml b/app/src/main/res/values-ru/strings.xml
-index 3475814..084d58a 100644
---- a/app/src/main/res/values-ru/strings.xml
-+++ b/app/src/main/res/values-ru/strings.xml
-@@ -1,6 +1,6 @@
 diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
 index 61fcd5e..45b2b2b 100644
 --- a/app/src/main/res/values/strings.xml
 +++ b/app/src/main/res/values/strings.xml
 @@ -1,6 +1,6 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <resources>
+-    <string name="app_name">Winlator</string>
++    <string name="app_name">Winlator Fork Optimal</string>
+     <string name="run">Run</string>
+     <string name="edit">Edit</string>
+     <string name="remove">Remove</string>
