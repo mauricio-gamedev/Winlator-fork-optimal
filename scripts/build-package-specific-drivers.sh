@@ -77,6 +77,12 @@ def replace_once(old, new, label):
     source = source.replace(old, new, 1)
 
 replace_once(
+    "import com.winlator.core.AppUtils;\n",
+    "import com.winlator.core.AppUtils;\nimport com.winlator.core.Callback;\n",
+    "startup log callback import"
+)
+
+replace_once(
     "    private SharedPreferences preferences;\n",
     """    private SharedPreferences preferences;
     private android.os.Handler startupHandler;
