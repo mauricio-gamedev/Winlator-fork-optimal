@@ -176,9 +176,9 @@ mkdir -p "$WORK"
 # Record the upstream archive layout before replacing the assets. This is part of the
 # regression audit: runtime paths in ICD JSON files must exist after tar extraction.
 echo 'Upstream Vortek asset members:'
-tar --zstd -tf "$APP/src/main/assets/graphics_driver/vortek-2.1.tzst" | grep -E 'libvulkan_vortek\\.so|vortek_icd' || true
+tar --zstd -tf "$APP/src/main/assets/graphics_driver/vortek-2.1.tzst"
 echo 'Upstream Gladio asset members:'
-tar --zstd -tf "$APP/src/main/assets/graphics_driver/gladio-1.1.tzst" | grep -E 'libGL\\.so' || true
+tar --zstd -tf "$APP/src/main/assets/graphics_driver/gladio-1.1.tzst"
 
 # Use the Vulkan headers revision needed by the generated serializer. Ubuntu's
 # packaged headers can lag behind the Vulkan API symbols used by this pinned source.
