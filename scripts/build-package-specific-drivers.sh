@@ -152,6 +152,49 @@ replace_once(
 )
 
 replace_once(
+    "        Executors.newSingleThreadExecutor().execute(() -> {\n            if (!isGenerateWineprefix()) {\n                setupWineSystemFiles();\n                extractGraphicsDriverFiles();\n                changeWineAudioDriver();\n            }\n            setupXEnvironment();\n        });\n",
+    """        Executors.newSingleThreadExecutor().execute(() -> {
+            try {
+                if (!isGenerateWineprefix()) {
+                    setupWineSystemFiles();
+                    extractGraphicsDriverFiles();
+                    changeWineAudioDriver();
+                }
+                setupXEnvironment();
+            }
+            catch (Exception error) {
+                java.io.StringWriter writer = new java.io.StringWriter();
+                error.printStackTrace(new java.io.PrintWriter(writer));
+                synchronized (startupLogLock) {
+                    startupLogBuffer.append("\\n[STARTUP JAVA EXCEPTION]\\n").append(writer.toString());
+                }
+                startupWindowVisible = true;
+                if (startupHandler != null && startupTimeoutRunnable != null) startupHandler.removeCallbacks(startupTimeoutRunnable);
+                if (startupLogCallback != null) ProcessHelper.removeDebugCallback(startupLogCallback);
+                runOnUiThread(() -> {
+                    preloaderDialog.close();
+                    String logSnapshot;
+                    synchronized (startupLogLock) {
+                        logSnapshot = startupLogBuffer.toString();
+                    }
+                    if (logSnapshot.length() > 2600) {
+                        logSnapshot = logSnapshot.substring(logSnapshot.length() - 2600);
+                    }
+                    startupTimeoutDialog = new ContentDialog(this);
+                    startupTimeoutDialog.setTitle("Falha na inicialização");
+                    startupTimeoutDialog.setMessage("Falha ao preparar o container. Envie estas mensagens para diagnosticar o erro.\\n\\n" + logSnapshot);
+                    startupTimeoutDialog.findViewById(R.id.BTCancel).setVisibility(View.GONE);
+                    startupTimeoutDialog.setOnConfirmCallback(this::finish);
+                    startupTimeoutDialog.setCancelable(false);
+                    startupTimeoutDialog.show();
+                });
+            }
+        });
+""",
+    "startup initialization exception handling"
+)
+
+replace_once(
     "        winHandler.stop();\n        if (environment != null) environment.stopEnvironmentComponents();\n        ForegroundService.stopSession(this);\n",
     """        winHandler.stop();
         if (startupHandler != null && startupTimeoutRunnable != null) startupHandler.removeCallbacks(startupTimeoutRunnable);
