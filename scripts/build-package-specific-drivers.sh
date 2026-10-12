@@ -24,8 +24,22 @@ print(f"Patched {p}")
 PY
 }
 
-# The Linux guest drivers shipped in the upstream assets contain package-specific
-# socket/cache paths. Rebuild them for our distinct Android application ID.
+# Patch the Android-side clients to use this fork's private application directory.
+replace_exactly_once "$APP/src/main/java/com/winlator/core/AppUtils.java" \
+  '/data/data/com.winlator/storage' \
+  '/data/data/com.winlator.optimal/storage'
+replace_exactly_once "$APP/src/main/cpp/winlator/include/winlator.h" \
+  '/data/data/com.winlator/cache' \
+  '/data/data/com.winlator.optimal/cache'
+replace_exactly_once "$APP/src/main/cpp/vortekrenderer/include/vortek.h" \
+  '/data/data/com.winlator/files/rootfs/tmp/.vortek/V0' \
+  '/data/data/com.winlator.optimal/files/rootfs/tmp/.vortek/V0'
+replace_exactly_once "$APP/src/main/cpp/gladiorenderer/include/gladio.h" \
+  '/data/data/com.winlator/files/rootfs/tmp/.X11-unix/X0' \
+  '/data/data/com.winlator.optimal/files/rootfs/tmp/.X11-unix/X0'
+
+# The Linux guest drivers shipped in upstream assets also contain package-specific
+# socket/cache paths. Rebuild them so the client and server use the same locations.
 replace_exactly_once "$UPSTREAM/vortek/include/vortek.h" \
   '/data/data/com.winlator/files/rootfs/tmp/.vortek/V0' \
   '/data/data/com.winlator.optimal/files/rootfs/tmp/.vortek/V0'
