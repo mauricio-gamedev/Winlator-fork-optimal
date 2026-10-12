@@ -45,12 +45,19 @@ jobs:
             "ndk;24.0.8215888" \
             "cmake;3.22.1"
 
+      - name: Install Linux ARM64 driver build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu zstd
+
       - name: Verify pinned source modules
         run: |
           git submodule status --recursive
           test -f upstream/app/app/build.gradle
           test -f upstream/app/app/src/main/cpp/CMakeLists.txt
           test -f upstream/installable_components/turnip/index.txt
+          test -f upstream/vortek/CMakeLists.txt
+          test -f upstream/gladio/CMakeLists.txt
 
       - name: Apply fork patches, if present
         shell: bash
@@ -62,6 +69,9 @@ jobs:
             git -C upstream/app apply --check "$patch_file"
             git -C upstream/app apply "$patch_file"
           done
+
+      - name: Rebuild package-specific guest graphics assets
+        run: bash scripts/build-package-specific-drivers.sh
 
       - name: Build debug APK
         working-directory: upstream/app
